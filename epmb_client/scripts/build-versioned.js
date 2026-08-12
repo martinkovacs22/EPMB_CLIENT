@@ -42,8 +42,8 @@ const versionFolder = `v${manifest.major}.${manifest.minor}.${manifest.patch}.${
 // Manifest elmentése
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
-// 3. Cél mappák meghatározása (Verziózott + Latest)
-const baseClientDir = path.resolve(__dirname, '../../../EPMB_SER/EPMB_SER/client');
+// 3. Cél mappák meghatározása
+const baseClientDir = path.resolve(__dirname, '../../../EPMBSER/EPMBSER/client');
 const targetDir = path.join(baseClientDir, versionFolder).replace(/\\/g, '/');
 const latestDir = path.join(baseClientDir, 'latest').replace(/\\/g, '/');
 
@@ -67,14 +67,32 @@ try {
         fs.rmSync(latestDir, { recursive: true, force: true });
     }
 
-    // Tényleges fájlmásolás a latest mappába
     fs.cpSync(targetDir, latestDir, { recursive: true });
 
     console.log(`\n✅ Sikeres build!`);
     console.log(` ├─ Verziózva: ${targetDir}`);
     console.log(` └─ Frissítve: ${latestDir}`);
 
+    // 6. GitHub Commit & Push automatizálás
+    console.log(`\n[GIT] Automatizált Git commit és push indítása...`);
+
+    // Minden változás hozzáadása (a frissült build-manifest.json is bekerül)
+    execSync('git add .', { stdio: 'inherit' });
+
+    // Commit készítése a verziószámmal
+    execSync(`git commit -m "Build: ${versionFolder}"`, { stdio: 'inherit' });
+
+    // Push a GitHub-ra
+    execSync('git push', { stdio: 'inherit' });
+
+    console.log(`\n🚀 Sikeresen commitolva és feltöltve GitHub-ra a következő üzenettel: "Build: ${versionFolder}"`);
+
 } catch (error) {
-    console.error('\n❌ Hiba történt a build során:', error);
-    process.exit(1);
+    // Ha a git commit azért bukik el, mert nem volt semmi változás a kódban, azt külön kezeli
+    if (error.message && error.message.includes('nothing to commit')) {
+        console.log('\n⚠️ Git warning: Nem volt változás a kódban a commitoláshoz.');
+    } else {
+        console.error('\n❌ Hiba történt a build vagy a Git művelet során:', error.message || error);
+        process.exit(1);
+    }
 }
