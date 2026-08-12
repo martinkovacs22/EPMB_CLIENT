@@ -1,69 +1,108 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
-
-import SignView from './components/Sign/SignView.jsx';
-import MenuView from './components/Menu/MenuView.jsx';
-import GameView from './components/Game/GameView.jsx';
+import SignUp from './components/SignUp.jsx';
+import Login from './components/Login.jsx';
+import RoomCreate from './RoomCreate';
+import './index.css';
 
 export default function App() {
-    // Nézet állapot: 'sign' | 'menu' | 'game'
-    const [currentView, setCurrentView] = useState('sign');
-    const [user, setUser] = useState(null);
-    const [socket, setSocket] = useState(null);
+    const [auth, setAuth] = useState({ isLoggedIn: false, user: null });
+    const [notifications, setNotifications] = useState([]);
 
-    // Bejelentkezés kezelése
-    const handleLoginSuccess = (userData) => {
-        setUser(userData);
-        setCurrentView('menu');
-    };
+    // 1. Auth állapot lekérése indításkor
+    useEffect(() => {
+        fetch('/user/status')
+            .then(res => res.json())
+            .then(data => setAuth({ isLoggedIn: data.isLoggedIn, user: data.user }))
+            .catch(err => console.error(err));
+    }, []);
 
-    // Kijelentkezés és socket lekapcsolás
-    const handleLogout = () => {
-        if (socket) {
+    // 2. Csak az értesítési névtérre csatlakozunk, ha be van jelentkezve
+    useEffect(() => {
+        if (!auth.isLoggedIn) return;
+
+        // Kifejezetten a /notifications namespace-hez kapcsolódunk
+        const socket = io('/notifications', {
+            withCredentials: true
+        });
+
+        socket.on('connect', () => {
+            console.log('[NOTIFICATION SOCKET] Csatlakozva!');
+        });
+
+        socket.on('room_invite', (data) => {
+            console.log('[NOTIFICATION SOCKET] Új meghívó:', data);
+            setNotifications(prev => [data, ...prev]);
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('[NOTIFICATION SOCKET ERROR]:', err.message);
+        });
+
+        return () => {
             socket.disconnect();
-            setSocket(null);
-        }
-        setUser(null);
-        setCurrentView('sign');
-    };
+        };
+    }, [auth.isLoggedIn]);
 
-    // Játék elindítása és a Socket.io kapcsolat kiépítése
-    const handleStartGame = () => {
-        setCurrentView('game');
-
-        if (!socket) {
-            const newSocket = io({
-                autoConnect: true
-            });
-
-            newSocket.on('connect', () => {
-                console.log('[SOCKET] Csatlakozva a szerverhez id:', newSocket.id);
-            });
-
-            setSocket(newSocket);
-        }
+    const handleLogout = async () => {
+        await fetch('/user/logout', { method: 'POST' });
+        setAuth({ isLoggedIn: false, user: null });
+        setNotifications([]);
     };
 
     return (
-        <div className="app-container">
-            {currentView === 'sign' && (
-                <SignView onLoginSuccess={handleLoginSuccess} />
+        <Router>
+            <nav className="navbar">
+                <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: 'var(--accent-color)' }}>
+                    EPMB Dungeon
+                </div>
+                <div className="nav-links">
+                    {auth.isLoggedIn ? (
+                        <>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                Üdv, <b>{auth.user?.username}</b>!
+                            </span>
+                            <Link to="/roomcreate">Szoba Létrehozás</Link>
+                            <button onClick={handleLogout} className="nav-btn">Kijelentkezés</button>
+                        </>
+                    ) : (
+                        <>
+                            <Link to="/login">Bejelentkezés</Link>
+                            <Link to="/signup">Regisztráció</Link>
+                        </>
+                    )}
+                </div>
+            </nav>
+
+            {/* Értesítések kiírása */}
+            {notifications.length > 0 && (
+                <div style={{ maxWidth: '600px', margin: '1rem auto' }}>
+                    {notifications.map((notif, index) => (
+                        <div key={index} className="alert alert-success" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>
+                                🎮 <b>{notif.invitedBy}</b> meghívott a(z) <b>{notif.roomName}</b> játékba!
+                            </span>
+                            <button
+                                onClick={() => setNotifications(prev => prev.filter((_, i) => i !== index))}
+                                style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
+                                X
+                            </button>
+                        </div>
+                    ))}
+                </div>
             )}
 
-            {currentView === 'menu' && (
-                <MenuView
-                    user={user}
-                    onStartGame={handleStartGame}
-                    onLogout={handleLogout}
-                />
-            )}
-
-            {currentView === 'game' && (
-                <GameView
-                    socket={socket}
-                    onReturnToMenu={() => setCurrentView('menu')}
-                />
-            )}
-        </div>
+            <Routes>
+                <Route path="/signup" element={<SignUp />} />
+                <Route path="/login" element={<Login onLoginSuccess={(user) => setAuth({ isLoggedIn: true, user })} />} />
+                <Route path="/roomcreate" element={<RoomCreate isLoggedIn={auth.isLoggedIn} />} />
+                <Route path="*" element={
+                    <div style={{ textAlign: 'center', marginTop: '4rem' }}>
+                        <h1>Üdvözöl az EPMB Dungeon Játékban!</h1>
+                    </div>
+                } />
+            </Routes>
+        </Router>
     );
 }
