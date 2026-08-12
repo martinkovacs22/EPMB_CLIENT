@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="EPMB_CLIENT/epmb_client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>
